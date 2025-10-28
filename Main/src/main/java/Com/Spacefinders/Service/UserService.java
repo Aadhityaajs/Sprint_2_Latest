@@ -8,11 +8,8 @@ import Com.Spacefinders.Enums.*;
 import Com.Spacefinders.Exception.*;
 import Com.Spacefinders.Repository.AuditRepository;
 import Com.Spacefinders.Repository.UserRepository;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -25,15 +22,7 @@ public class UserService {
     @Autowired
     private AuditRepository auditRepository;
 
-    // FIXED: Added password encoder for secure password hashing
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired(required = false)
-    private HttpServletRequest httpServletRequest;
-
-    // FIXED: Added @Transactional for data consistency
-    @Transactional
+    // Add User (Signup)
     public UserResponse addUser(UserSignupRequest request) {
         // Check if username already exists
         User existingUser = userRepository.findByUsername(request.getUsername());
@@ -56,10 +45,7 @@ public class UserService {
         // Create new user
         User user = new User();
         user.setUsername(request.getUsername());
-
-        // FIXED: Encrypt password before storing
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-
+        user.setPassword(request.getPassword());
         user.setUserMail(request.getUserMail());
         user.setUserPhone(request.getUserPhone());
         user.setUserAddress(request.getUserAddress());
@@ -68,14 +54,14 @@ public class UserService {
 
         User savedUser = userRepository.save(user);
 
-        // FIXED: Capture actual IP address
-        createAuditLog(savedUser.getUserId(), ActionType.CREATE, "User registered successfully", getClientIp());
+        // Create audit log
+        createAuditLog(savedUser.getUserId(), ActionType.CREATE, "User registered successfully", null);
 
+        // Convert to response
         return convertToUserResponse(savedUser);
     }
 
-    // FIXED: Added @Transactional
-    @Transactional
+    // Login User
     public LoginResponse loginUser(UserLoginRequest request) {
         // Check if user exists
         User user = userRepository.findByUsername(request.getUsername());
@@ -83,8 +69,8 @@ public class UserService {
             throw new UserNotFoundException("User not found. Please register first.");
         }
 
-        // FIXED: Use password encoder to verify password
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        // Check if password matches
+        if (!user.getPassword().equals(request.getPassword())) {
             throw new InvalidCredentialsException("Invalid username or password");
         }
 
@@ -97,8 +83,8 @@ public class UserService {
             throw new UserNotFoundException("Account not found");
         }
 
-        // FIXED: Capture actual IP address
-        createAuditLog(user.getUserId(), ActionType.LOGIN, "User logged in", getClientIp());
+        // Create audit log
+        createAuditLog(user.getUserId(), ActionType.LOGIN, "User logged in", null);
 
         // Create login response
         LoginResponse response = new LoginResponse();
@@ -111,7 +97,6 @@ public class UserService {
     }
 
     // View Profile
-    @Transactional(readOnly = true)
     public UserResponse viewProfile(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
@@ -119,8 +104,7 @@ public class UserService {
         return convertToUserResponse(user);
     }
 
-    // FIXED: Added @Transactional
-    @Transactional
+    // Update User
     public UserResponse updateUser(Long userId, UserUpdateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
@@ -148,14 +132,13 @@ public class UserService {
 
         User updatedUser = userRepository.save(user);
 
-        // FIXED: Capture actual IP address
-        createAuditLog(userId, ActionType.UPDATE, "User profile updated", getClientIp());
+        // Create audit log
+        createAuditLog(userId, ActionType.UPDATE, "User profile updated", null);
 
         return convertToUserResponse(updatedUser);
     }
 
-    // FIXED: Added @Transactional
-    @Transactional
+    // Delete User (Soft Delete)
     public void deleteUser(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
@@ -168,39 +151,37 @@ public class UserService {
         user.setUserStatus(UserStatus.DELETED);
         userRepository.save(user);
 
-        // FIXED: Capture actual IP address
-        createAuditLog(userId, ActionType.DELETE, "User account deleted", getClientIp());
+        // Create audit log
+        createAuditLog(userId, ActionType.DELETE, "User account deleted", null);
     }
 
-    // FIXED: Added @Transactional
-    @Transactional
+    // Reset Password
     public void resetPassword(ResetPasswordRequest request) {
         User user = userRepository.findByUsername(request.getUsername());
         if (user == null) {
             throw new UserNotFoundException("User not found");
         }
 
-        // FIXED: Use password encoder to verify old password
-        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+        // Check if old password matches
+        if (!user.getPassword().equals(request.getOldPassword())) {
             throw new InvalidCredentialsException("Old password is incorrect");
         }
 
-        // FIXED: Encrypt new password before storing
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        // Update password
+        user.setPassword(request.getNewPassword());
         userRepository.save(user);
 
-        // FIXED: Capture actual IP address
-        createAuditLog(user.getUserId(), ActionType.UPDATE, "Password reset successfully", getClientIp());
+        // Create audit log
+        createAuditLog(user.getUserId(), ActionType.UPDATE, "Password reset successfully", null);
     }
 
-    // FIXED: Added @Transactional
-    @Transactional
+    // Logout User
     public void logoutUser(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
 
-        // FIXED: Capture actual IP address
-        createAuditLog(userId, ActionType.LOGOUT, "User logged out", getClientIp());
+        // Create audit log
+        createAuditLog(userId, ActionType.LOGOUT, "User logged out", null);
     }
 
     // Helper method to convert User to UserResponse
@@ -216,7 +197,7 @@ public class UserService {
         return response;
     }
 
-    // FIXED: Helper method to create audit log with proper IP capture
+    // Helper method to create audit log
     private void createAuditLog(Long userId, ActionType actionType, String description, String ipAddress) {
         Audit audit = new Audit();
         audit.setUserId(userId);
@@ -225,24 +206,5 @@ public class UserService {
         audit.setActionType(actionType);
         audit.setIpAddress(ipAddress);
         auditRepository.save(audit);
-    }
-
-    // FIXED: New helper method to get client IP address
-    private String getClientIp() {
-        if (httpServletRequest == null) {
-            return "unknown";
-        }
-
-        String xForwardedFor = httpServletRequest.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            return xForwardedFor.split(",")[0].trim();
-        }
-
-        String xRealIp = httpServletRequest.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isEmpty()) {
-            return xRealIp;
-        }
-
-        return httpServletRequest.getRemoteAddr();
     }
 }
