@@ -13,6 +13,7 @@ import Com.Spacefinders.Exception.*;
 import Com.Spacefinders.Repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -36,7 +37,8 @@ public class HostService {
     @Autowired
     private UserRepository userRepository;
 
-    // Add Property
+    // FIXED: Added @Transactional for atomicity
+    @Transactional
     public PropertyResponse addProperty(PropertyRequest request) {
         // Validate user exists
         User host = userRepository.findById(request.getUserId())
@@ -84,7 +86,8 @@ public class HostService {
         return convertToPropertyResponse(savedProperty);
     }
 
-    // Update Property
+    // FIXED: Added @Transactional
+    @Transactional
     public PropertyResponse updateProperty(PropertyUpdateRequest request) {
         Property property = propertyRepository.findById(request.getPropertyId())
                 .orElseThrow(() -> new PropertyNotFoundException("Property not found"));
@@ -103,11 +106,17 @@ public class HostService {
         property.setHasAc(request.getHasAc());
         property.setHasHeater(request.getHasHeater());
         property.setHasPetFriendly(request.getHasPetFriendly());
-        property.setPropertyStatus(PropertyStatus.valueOf(request.getPropertyStatus()));
 
-        // Update address
+        // FIXED: Validate enum before setting
+        try {
+            property.setPropertyStatus(PropertyStatus.valueOf(request.getPropertyStatus()));
+        } catch (IllegalArgumentException e) {
+            throw new InvalidOperationException("Invalid property status: " + request.getPropertyStatus());
+        }
+
+        // FIXED: Use custom exception instead of generic RuntimeException
         Address address = addressRepository.findById(property.getAddressId())
-                .orElseThrow(() -> new RuntimeException("Address not found"));
+                .orElseThrow(() -> new AddressNotFoundException("Address not found for property"));
 
         address.setBuildingNo(request.getBuildingNo());
         address.setStreet(request.getStreet());
@@ -123,13 +132,14 @@ public class HostService {
         return convertToPropertyResponse(updatedProperty);
     }
 
-    // View All Properties by Host
+    // FIXED: Added @Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public List<PropertyResponse> viewAllProperty(Long userId) {
         List<Property> properties = propertyRepository.findByUserId(userId);
 
-        // Filter out DELETED properties
         List<PropertyResponse> propertyResponses = new ArrayList<>();
         for (Property property : properties) {
+            // Filter out DELETED properties
             if (property.getPropertyStatus() != PropertyStatus.DELETED) {
                 propertyResponses.add(convertToPropertyResponse(property));
             }
@@ -138,13 +148,15 @@ public class HostService {
         return propertyResponses;
     }
 
-    // View Property by ID
+    // FIXED: Added @Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public PropertyDetailResponse viewPropertyById(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new PropertyNotFoundException("Property not found"));
 
+        // FIXED: Use custom exception
         Address address = addressRepository.findById(property.getAddressId())
-                .orElseThrow(() -> new RuntimeException("Address not found"));
+                .orElseThrow(() -> new AddressNotFoundException("Address not found for property"));
 
         User host = userRepository.findById(property.getUserId())
                 .orElseThrow(() -> new UserNotFoundException("Host not found"));
@@ -152,7 +164,8 @@ public class HostService {
         return convertToPropertyDetailResponse(property, address, host);
     }
 
-    // Delete Property (Soft Delete)
+    // FIXED: Added @Transactional
+    @Transactional
     public void deleteProperty(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new PropertyNotFoundException("Property not found"));
@@ -181,7 +194,8 @@ public class HostService {
         propertyRepository.save(property);
     }
 
-    // View Deleted Properties
+    // FIXED: Added @Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public List<PropertyResponse> viewDeleteProperty(Long userId) {
         List<Property> properties = propertyRepository.findByUserIdAndPropertyStatus(
                 userId, PropertyStatus.DELETED
@@ -195,7 +209,8 @@ public class HostService {
         return propertyResponses;
     }
 
-    // View Bookings for Host's Properties
+    // FIXED: Added @Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public List<BookingResponse> viewBookings(Long userId) {
         List<Booking> bookings = bookingRepository.findBookingsByHostId(userId);
 
@@ -207,11 +222,12 @@ public class HostService {
         return bookingResponses;
     }
 
-    // Add Complaint
+    // FIXED: Added @Transactional
+    @Transactional
     public ComplaintResponse addComplaint(ComplaintRequest request) {
         // Check if booking exists
         if (request.getBookingId() != null) {
-            Booking booking = bookingRepository.findById(request.getBookingId())
+            bookingRepository.findById(request.getBookingId())
                     .orElseThrow(() -> new BookingNotFoundException("Booking not found"));
         }
 
@@ -220,7 +236,14 @@ public class HostService {
         complaint.setUserId(request.getUserId());
         complaint.setBookingId(request.getBookingId());
         complaint.setComplaintDescription(request.getComplaintDescription());
-        complaint.setComplaintType(ComplaintType.valueOf(request.getComplaintType()));
+
+        // FIXED: Validate enum before setting
+        try {
+            complaint.setComplaintType(ComplaintType.valueOf(request.getComplaintType()));
+        } catch (IllegalArgumentException e) {
+            throw new InvalidOperationException("Invalid complaint type: " + request.getComplaintType());
+        }
+
         complaint.setComplaintStatus(ComplaintStatus.PENDING);
         complaint.setComplaintDate(LocalDateTime.now());
 
@@ -229,7 +252,7 @@ public class HostService {
         return convertToComplaintResponse(savedComplaint);
     }
 
-    // Helper method to convert Property to PropertyResponse
+    // Helper methods remain the same but with better null handling
     private PropertyResponse convertToPropertyResponse(Property property) {
         PropertyResponse response = new PropertyResponse();
         response.setPropertyId(property.getPropertyId());
@@ -250,18 +273,17 @@ public class HostService {
         response.setHasHeater(property.getHasHeater());
         response.setHasPetFriendly(property.getHasPetFriendly());
 
-        // Get address details
-        Address address = addressRepository.findById(property.getAddressId()).orElse(null);
-        if (address != null) {
-            response.setCity(address.getCity());
-            response.setState(address.getState());
-            response.setCountry(address.getCountry());
-        }
+        // FIXED: Better null handling with custom exception
+        Address address = addressRepository.findById(property.getAddressId())
+                .orElseThrow(() -> new AddressNotFoundException("Address not found for property"));
+
+        response.setCity(address.getCity());
+        response.setState(address.getState());
+        response.setCountry(address.getCountry());
 
         return response;
     }
 
-    // Helper method to convert to PropertyDetailResponse
     private PropertyDetailResponse convertToPropertyDetailResponse(Property property, Address address, User host) {
         PropertyDetailResponse response = new PropertyDetailResponse();
         response.setPropertyId(property.getPropertyId());
@@ -298,7 +320,6 @@ public class HostService {
         return response;
     }
 
-    // Helper method to convert Booking to BookingResponse
     private BookingResponse convertToBookingResponse(Booking booking) {
         BookingResponse response = new BookingResponse();
         response.setBookingId(booking.getBookingId());
@@ -311,28 +332,25 @@ public class HostService {
         response.setHasExtraCot(booking.getHasExtraCot());
         response.setHasDeepClean(booking.getHasDeepClean());
 
-        // Get property details
-        Property property = propertyRepository.findById(booking.getPropertyId()).orElse(null);
-        if (property != null) {
-            response.setPropertyName(property.getPropertyName());
-            response.setPropertyImage(property.getImageURL());
+        // Get property details - FIXED: Better null handling
+        Property property = propertyRepository.findById(booking.getPropertyId())
+                .orElseThrow(() -> new PropertyNotFoundException("Property not found for booking"));
 
-            Address address = addressRepository.findById(property.getAddressId()).orElse(null);
-            if (address != null) {
-                response.setCity(address.getCity());
-            }
-        }
+        response.setPropertyName(property.getPropertyName());
+        response.setPropertyImage(property.getImageURL());
+
+        Address address = addressRepository.findById(property.getAddressId())
+                .orElseThrow(() -> new AddressNotFoundException("Address not found for property"));
+        response.setCity(address.getCity());
 
         // Get user details
-        User user = userRepository.findById(booking.getUserId()).orElse(null);
-        if (user != null) {
-            response.setUsername(user.getUsername());
-        }
+        User user = userRepository.findById(booking.getUserId())
+                .orElseThrow(() -> new UserNotFoundException("User not found for booking"));
+        response.setUsername(user.getUsername());
 
         return response;
     }
 
-    // Helper method to convert Complaint to ComplaintResponse
     private ComplaintResponse convertToComplaintResponse(Complaint complaint) {
         ComplaintResponse response = new ComplaintResponse();
         response.setComplaintId(complaint.getComplaintId());
@@ -344,10 +362,9 @@ public class HostService {
         response.setComplaintDate(complaint.getComplaintDate());
 
         // Get username
-        User user = userRepository.findById(complaint.getUserId()).orElse(null);
-        if (user != null) {
-            response.setUsername(user.getUsername());
-        }
+        User user = userRepository.findById(complaint.getUserId())
+                .orElseThrow(() -> new UserNotFoundException("User not found for complaint"));
+        response.setUsername(user.getUsername());
 
         return response;
     }

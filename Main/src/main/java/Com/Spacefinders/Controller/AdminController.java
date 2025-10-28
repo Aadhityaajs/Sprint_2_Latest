@@ -150,3 +150,13 @@ public class AdminController {
         return ResponseEntity.ok(response);
     }
 }
+
+//public ResponseEntity<List<Complaint>> getComplaintsByUserId(int userId) {
+//    List<Complaint> complaints = cp.findByUserIdAndStatusNotClosed(userId, ComplaintsEnum.Status.closed);
+//
+//    if (complaints.isEmpty()) {
+//        throw new DataNotFoundException("No open complaints found for user id: " + userId);
+//    }
+//
+//    return ResponseEntity.ok(complaints);
+//}
